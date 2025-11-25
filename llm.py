@@ -4,6 +4,9 @@ from langchain_openai import ChatOpenAI
 from models import JobPostingAnalysis
 import dotenv
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='app.log')
+
 dotenv.load_dotenv()
 
 # --- Setup ---
@@ -31,6 +34,7 @@ def run_llm_analysis_chain(job_description: str, profile_content: str) -> JobPos
     """
     # The invoke method replaces .run()
     result = chain.invoke({"job_description": job_description, "profile_content": profile_content}) 
+    logging.info(f"LLM analysis result: {job_description[:30]}... vs {profile_content[:30]}..., Result: {result}")
     return result
 
 if __name__ == "__main__":
