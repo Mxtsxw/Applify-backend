@@ -1,3 +1,4 @@
+import os
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -5,6 +6,8 @@ from models import JobPostingAnalysis
 import dotenv
 
 import logging
+
+from utils import get_default_template
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='app.log')
 
 dotenv.load_dotenv()
@@ -54,3 +57,62 @@ if __name__ == "__main__":
     )
     
     print(analysis.model_dump_json(indent=2))
+
+def generate_cover_letter_chain(
+    job_description: str, 
+    profile_content: str, 
+    analysis_data: JobPostingAnalysis, 
+    user_template: str | None
+) -> str:
+    """
+    Generates a personalized cover letter by contextually integrating job analysis into a template.
+    """
+    
+    # 1. Choose the template source
+    template_to_use = user_template if user_template and user_template.strip() else get_default_template()
+
+    # 2. Prepare the data
+    analysis_json = analysis_data.model_dump_json(indent=2)
+
+    # 3. Construct the dynamic prompt (The key change is here)
+    system_prompt = (
+        "You are an expert ghostwriter and consultant. Your primary task is to create a single, cohesive, "
+        "highly personalized cover letter. You must use the provided Analysis Data to **contextually adapt** "
+        "and **seamlessly integrate** facts about the candidate's match (e.g., matching skills, previous experience and projects,"
+        "and growth areas) directly into the flow and sections of the provided template. "
+        "Do NOT use brackets or explicit placeholders. The final output must read naturally."
+    )
+
+    # The human prompt now emphasizes integration over replacement.
+    human_prompt = f"""
+    --- AI ANALYSIS DATA (Use this for facts and scores) ---
+    {analysis_json}
+    
+    --- JOB DESCRIPTION (Use this for context and requirements) ---
+    {job_description}
+    
+    --- CANDIDATE PROFILE (Use this for professional tone and background) ---
+    {profile_content}
+    
+    --- BASE TEMPLATE (Adapt and integrate the data into this structure) ---
+    {template_to_use}
+
+    INSTRUCTIONS:
+    1. **Personalize:** Integrate specific matched skills and scores from the AI Analysis into the BASE TEMPLATE text.
+    2. **Address Gaps:** If there are 'missingSkills', briefly and positively mention the intent to develop those areas.
+    3. **Tone:** Maintain the professional tone of the BASE TEMPLATE.
+    4. **Output:** Return ONLY the final, polished cover letter text.
+    """
+
+    prompt_template = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        ("human", human_prompt)
+    ])
+    
+    # 4. Define and Invoke the chain
+    chain = prompt_template | llm
+    
+    response = chain.invoke({}) 
+    
+    logging.info(f"Cover letter generated successfully using contextual integration.")
+    return response.content

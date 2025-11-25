@@ -27,3 +27,9 @@ class JobPostingAnalysis(BaseModel):
 class AnalysisRequest(BaseModel):
     job_posting_content: str = Field(..., description="Content of the job posting to analyze.")
     resume_text: Optional[str] = Field(None, description="The user's resume/profile text (optional for now).")
+
+class CoverLetterRequest(BaseModel):
+    job_description: str = Field(..., description="Full text of the job posting.")
+    profile_content: str = Field(..., description="Candidate's profile/resume text.")
+    analysis_data: JobPostingAnalysis = Field(..., description="Structured analysis results used for personalization.")
+    template_content: Optional[str] = Field(None, description="User's custom template from the frontend (can be null).")

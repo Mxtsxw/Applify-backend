@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from starlette.concurrency import run_in_threadpool
 
-from models import JobPostingAnalysis, AnalysisRequest
-from llm import run_llm_analysis_chain
+from models import JobPostingAnalysis, AnalysisRequest, CoverLetterRequest
+from llm import generate_cover_letter_chain, run_llm_analysis_chain
 
 # Initialize FastAPI App
 app = FastAPI(
@@ -44,6 +46,41 @@ async def analyze_job_posting(request: AnalysisRequest):
 
     # 3. Return the result
     return analysis_result
+
+@app.post("/api/v1/generate-cover-letter", 
+             response_class=PlainTextResponse,
+             status_code=200,
+             summary="Generate personalized cover letter using LLM.")
+async def generate_cover_letter(request_data: CoverLetterRequest):
+    """
+    Receives all necessary inputs (Job, Profile, Analysis, Template) and calls the 
+    LLM chain to generate a final, personalized cover letter text.
+    """
+    logging.info("Received request for cover letter generation via app.post.")
+    
+    if not request_data.job_description or not request_data.profile_content:
+        raise HTTPException(
+            status_code=400,
+            detail="Job description and profile content are required for generation."
+        )
+
+    try:
+        final_letter_text = await run_in_threadpool(
+            generate_cover_letter_chain,
+            request_data.job_description,
+            request_data.profile_content,
+            request_data.analysis_data,
+            request_data.template_content
+        )
+        
+        return final_letter_text
+
+    except Exception as e:
+        logging.error(f"Error during LLM cover letter generation: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate letter due to a service error. Details: {e}"
+        )
 
 if __name__ == "__main__":
     import uvicorn
