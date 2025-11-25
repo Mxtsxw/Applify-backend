@@ -84,10 +84,11 @@ def generate_cover_letter_chain(
     )
 
     # The human prompt now emphasizes integration over replacement.
-    human_prompt = f"""
-    --- AI ANALYSIS DATA (Use this for facts and scores) ---
-    {analysis_json}
-    
+
+    # --- AI ANALYSIS DATA (Use this for facts and scores) ---
+    # {analysis_json.}
+
+    human_prompt = f"""    
     --- JOB DESCRIPTION (Use this for context and requirements) ---
     {job_description}
     
