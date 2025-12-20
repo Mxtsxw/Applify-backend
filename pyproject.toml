@@ -5,12 +5,16 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "authlib>=1.6.6",
     "dotenv>=0.9.9",
     "fastapi[standard]>=0.122.0",
+    "itsdangerous>=2.2.0",
     "langchain>=1.1.0",
     "langchain-openai>=1.1.0",
     "openai>=2.8.1",
+    "psycopg2-binary>=2.9.11",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
+    "sqlmodel>=0.0.27",
     "starlette>=0.50.0",
 ]
