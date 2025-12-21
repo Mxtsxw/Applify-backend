@@ -2,6 +2,11 @@ import os
 import logging
 import requests
 from fastapi import HTTPException
+from PyPDF2 import PdfReader
+from docx import Document
+from database import User, Resume
+from models import CandidateContext
+from sqlmodel import Session
 
 TEMPLATE_FILE_PATH = os.path.join(os.path.dirname(__file__), "templates", "coverLetter.txt")
 _DEFAULT_TEMPLATE_CACHE: str | None = None
@@ -55,3 +60,88 @@ def fetch_content_from_url(url: str) -> str:
         return mock_job_description
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch content from URL: {e}")
+
+def extract_text_from_file(file_path: str) -> str:
+    """Robustly extracts text from PDF, DOCX, or TXT files."""
+    if not os.path.exists(file_path):
+        return "[Error: File not found on server]"
+    
+    ext = file_path.split('.')[-1].lower()
+    text = ""
+
+    try:
+        if ext == 'pdf':
+            reader = PdfReader(file_path)
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+        elif ext in ['docx', 'doc']:
+            doc = Document(file_path)
+            for para in doc.paragraphs:
+                text += para.text + "\n"
+        elif ext == 'txt':
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+        else:
+            return "[Error: Unsupported file format.]"
+            
+    except Exception as e:
+        logging.error(f"Error reading file {file_path}: {e}")
+        return "[Error: Could not parse file content.]"
+
+    return text.strip()
+
+def get_profile_text(db: Session, user_id: int) -> str:
+    """
+    Strictly fetches and formats the User Profile from the DB.
+    Does NOT handle logic for resumes or manual text.
+    """
+    user = db.get(User, user_id)
+    if not user:
+        return "[Error: User profile not found.]"
+
+    # Clean formatting
+    parts = [
+        f"Name: {user.name}",
+        f"Title: {user.title or 'N/A'}",
+        f"Summary: {user.summary or 'N/A'}",
+        f"Skills: {user.skills or 'N/A'}",
+        f"Experience: {user.experience or 'N/A'}",
+        f"Education: {user.education or 'N/A'}"
+    ]
+    return "\n".join(parts)
+
+def resolve_candidate_text(db: Session, user_id: int, context: CandidateContext) -> str:
+    """
+    Orchestrator: Builds the final string based on the 5 interaction cases.
+    """
+    parts = []
+
+    # --- 1. RESOLVE BASE SOURCE ---
+    if context.source_type == 'manual':
+        content = context.manual_content or ""
+        parts.append(f"--- MANUAL CANDIDATE INPUT ---\n{content}")
+
+    elif context.source_type == 'profile':
+        # Fetch profile directly using the helper
+        profile_content = get_profile_text(db, user_id)
+        parts.append(f"--- CANDIDATE PROFILE ---\n{profile_content}")
+
+    elif context.source_type == 'resume':
+        resume = db.get(Resume, context.source_id)
+        # Security check: Ensure resume belongs to the authenticated user
+        if not resume or resume.user_id != user_id:
+            raise HTTPException(status_code=404, detail="Resume not found or access denied")
+        
+        # Construct absolute path (Ensure 'uploads' exists in your root)
+        file_path = os.path.abspath(os.path.join("uploads", resume.filename))
+        resume_text = extract_text_from_file(file_path)
+        
+        parts.append(f"--- RESUME CONTENT ({resume.title}) ---\n{resume_text}")
+
+    # --- 2. APPLY LAYERING (Toggle) ---
+    # Inject profile data if requested AND if the base source wasn't already the profile
+    if context.include_profile_data and context.source_type != 'profile':
+        profile_content = get_profile_text(db, user_id)
+        parts.append(f"--- ADDITIONAL PROFILE CONTEXT ---\n{profile_content}")
+
+    return "\n\n".join(parts)

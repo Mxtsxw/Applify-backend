@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
-from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest, UserProfileUpdate, ManualCoverLetterRequest
+from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest, UserProfileUpdate, ManualCoverLetterRequest, CandidateContext
 from llm import run_llm_analysis_chain, generate_cover_letter_chain
 from datetime import datetime
 from fastapi.responses import RedirectResponse
@@ -28,6 +28,7 @@ load_dotenv()
 
 from database import create_db_and_tables, get_session, User, Resume, CoverLetter
 from pydantic import BaseModel
+from utils import extract_text_from_file, get_profile_text
 
 # --- Lifecycle: Connect to DB on Start ---
 @asynccontextmanager
@@ -179,6 +180,42 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
         logging.error(f"Auth Error: {e}")
         return RedirectResponse(url=f"{FRONTEND_URL}?error=Authentication%20Failed")
 
+def resolve_candidate_text(db: Session, user_id: int, context: CandidateContext) -> str:
+    """
+    Builds the final candidate string based on the 5 cases.
+    """
+    parts = []
+
+    # (Base Sources)
+    if context.source_type == 'manual':
+        content = context.manual_content or ""
+        parts.append(f"--- MANUAL CANDIDATE INPUT ---\n{content}")
+
+    elif context.source_type == 'profile':
+        # Case 1: Only Profile (we return early or just add it here)
+        profile_content = get_profile_text(context.source_type, context.source_id, context.manual_content)
+        parts.append(f"--- CANDIDATE PROFILE ---\n{profile_content}")
+
+    elif context.source_type == 'resume':
+        resume = db.get(Resume, context.source_id)
+        if not resume or resume.user_id != user_id:
+            raise HTTPException(404, "Resume not found")
+        
+        # Construct path (Adjust 'uploads' to your actual static folder path)
+        file_path = os.path.join("uploads", resume.filename)
+        resume_text = extract_text_from_file(file_path)
+        
+        parts.append(f"--- RESUME CONTENT ({resume.title}) ---\n{resume_text}")
+
+    # CASE 3, 5 (Layering Profile)
+    # We inject profile data if requested AND if we haven't already included it as the base source
+    if context.include_profile_data and context.source_type != 'profile':
+        profile_content = get_profile_text(db, user_id)
+        parts.append(f"--- ADDITIONAL PROFILE CONTEXT ---\n{profile_content}")
+
+    # Join with double newlines for clear separation
+    return "\n\n".join(parts)
+
 @app.get("/api/v1/users/me")
 async def get_current_user(
     token_payload: dict = Depends(validate_token),
@@ -196,24 +233,30 @@ async def get_current_user(
     return user
 
 @app.post("/api/v1/analyze-match/", response_model=JobPostingAnalysis)
-async def analyze_job_posting(request: AnalysisRequest, token: str = Depends(validate_token)):
-    """
-    Takes a job posting URL and returns a structured analysis object
-    by running a LangChain pipeline.
+async def analyze_job_posting(
+    request: AnalysisRequest, 
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    # 1. Extract User ID from Token
+    user_id = int(token.get("sub"))
+
+    # 2. Resolve Candidate Text based on Context
+    final_candidate_text = resolve_candidate_text(db, user_id, request.candidate_context)
     
-    Note: The use of run_in_threadpool is VITAL here. It runs the
-    blocking, synchronous LLM code in a separate thread, keeping
-    FastAPI's main event loop free for high concurrency.
-    
-    Requires: Bearer token authentication
-    """
+    if not final_candidate_text.strip():
+        raise HTTPException(status_code=400, detail="No candidate information provided.")
+
+    # 3. Run LLM Analysis
     job_description = request.job_posting_content
-    profile_description = request.resume_text or ""
+    
+    # Passing the resolved text to the LLM analysis function
+    analysis_result = await run_in_threadpool(
+        run_llm_analysis_chain, 
+        job_description, 
+        final_candidate_text
+    )
 
-    # 2. Run the heavy LLM analysis
-    analysis_result = await run_in_threadpool(run_llm_analysis_chain, job_description, profile_description)
-
-    # 3. Return the result
     return analysis_result
 
 @app.post("/api/v1/generate-cover-letter", 

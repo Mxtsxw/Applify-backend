@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 
 class UserProfileUpdate(BaseModel):
@@ -39,14 +39,19 @@ class JobPostingAnalysis(BaseModel):
         populate_by_name = True 
         validate_by_name = True
 
-
+class CandidateContext(BaseModel):
+    source_type: Literal['resume', 'profile', 'manual']
+    source_id: Optional[int] = None
+    manual_content: Optional[str] = None
+    include_profile_data: bool = False
+    
 class AnalysisRequest(BaseModel):
     job_posting_content: str = Field(..., description="Content of the job posting to analyze.")
-    resume_text: Optional[str] = Field(None, description="The user's resume/profile text (optional for now).")
+    candidate_context: CandidateContext = Field(..., description="Context about the candidate's source and profile data inclusion.")
 
 class CoverLetterRequest(BaseModel):
     job_description: str = Field(..., description="Full text of the job posting.")
-    profile_content: str = Field(..., description="Candidate's profile/resume text.")
+    candidate_context: CandidateContext = Field(..., description="Context about the candidate's source and profile data inclusion.")
     analysis_data: JobPostingAnalysis = Field(..., description="Structured analysis results used for personalization.")
     template_content: Optional[str] = Field(None, description="User's custom template from the frontend (can be null).")
     language: str = Field(default="English", description="Target language (e.g., 'French', 'English').")
@@ -54,3 +59,4 @@ class CoverLetterRequest(BaseModel):
 class ManualCoverLetterRequest(BaseModel):
     title: str
     content: str
+

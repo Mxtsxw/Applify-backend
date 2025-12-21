@@ -10,6 +10,14 @@ import logging
 from utils import get_default_template
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filename='app.log')
 
+# Create a custom logger desidgned for LLM operations
+LLM_LOGGER = logging.getLogger("llm_logger")
+file_handler = logging.FileHandler('llm_operations.log')
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+LLM_LOGGER.addHandler(file_handler)
+LLM_LOGGER.setLevel(logging.INFO)
+
 dotenv.load_dotenv()
 
 # --- Setup ---
@@ -35,9 +43,10 @@ def run_llm_analysis_chain(job_description: str, profile_content: str) -> JobPos
     Calls an LLM via LangChain (LCEL) to analyze a job description.
     Returns a Pydantic-validated JobPostingAnalysis object.
     """
-    # The invoke method replaces .run()
+    # Invoke the chain with both job description and profile content
     result = chain.invoke({"job_description": job_description, "profile_content": profile_content}) 
     logging.info(f"LLM analysis result: {job_description[:30]}... vs {profile_content[:30]}..., Result: {result}")
+    LLM_LOGGER.info(f"LLM analysis completed for job description and profile content\n {job_description}... \n {profile_content}... \n Result: {result}")
     return result
 
 if __name__ == "__main__":
