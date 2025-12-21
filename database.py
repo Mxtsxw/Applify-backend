@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from sqlmodel import Field, SQLModel, create_engine, Session
+from sqlmodel import Field, SQLModel, create_engine, Session, Column, Text
 from dotenv import load_dotenv
 import os
 
@@ -16,6 +16,22 @@ class User(SQLModel, table=True):
     provider: str 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: datetime = Field(default_factory=datetime.utcnow)
+
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    
+    # Professional Info
+    title: Optional[str] = None
+    summary: Optional[str] = Field(default=None, sa_column=Column(Text))
+    experience: Optional[str] = None
+    education: Optional[str] = None
+    
+    skills: Optional[str] = Field(default=None, sa_column=Column(Text))
+    
+    # Social Links
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    portfolio: Optional[str] = None
 
 # --- 2. The Connection ---
 DATABASE_URL = os.getenv("DATABASE_URL")

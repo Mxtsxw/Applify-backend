@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
-from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest
+from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest, UserProfileUpdate
 from llm import run_llm_analysis_chain, generate_cover_letter_chain
 from datetime import datetime
 from fastapi.responses import RedirectResponse
@@ -112,7 +112,7 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
     """
     # Redirect to Frontend
     FRONTEND_URL = os.getenv("FRONTEND_AUTH_CALLBACK_URL") 
-    
+
     try:
         token = await oauth.google.authorize_access_token(request)
         user_info = token.get('userinfo')
@@ -167,18 +167,22 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
 
     except Exception as e:
         logging.error(f"Auth Error: {e}")
-        raise RedirectResponse(url=f"{FRONTEND_URL}?error=Authentication%20Failed")
+        return RedirectResponse(url=f"{FRONTEND_URL}?error=Authentication%20Failed")
 
 @app.get("/api/v1/users/me")
-async def get_current_user(request: Request, db: Session = Depends(get_session)):
+async def get_current_user(
+    token_payload: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
     """
-    Test endpoint to verify the session works.
+    Fetches the current user using the JWT token (Stateless).
     """
-    user_id = request.session.get('user_id')
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    user_id = token_payload.get('sub')
     
     user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     return user
 
 @app.post("/api/v1/analyze-match/", response_model=JobPostingAnalysis)
@@ -239,6 +243,54 @@ async def generate_cover_letter(request_data: CoverLetterRequest, token: str = D
             status_code=500,
             detail=f"Failed to generate letter due to a service error. Details: {e}"
         )
+
+# -- User Profile Update Endpoint ---
+@app.get("/api/v1/profile/me", response_model=User)
+async def get_my_profile(
+    token: dict = Depends(validate_token), 
+    db: Session = Depends(get_session)
+):
+    """
+    Fetches the full profile of the currently logged-in user.
+    """
+    user_id = token.get("sub")
+    user = db.get(User, user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return user
+
+@app.put("/api/v1/profile/me", response_model=User)
+async def update_my_profile(
+    profile_data: UserProfileUpdate, 
+    token: dict = Depends(validate_token), 
+    db: Session = Depends(get_session)
+):
+    """
+    Updates the logged-in user's profile information.
+    """
+
+    logging.info(f"Updating profile for user ID: {token.get('sub')}")
+    user_id = token.get("sub")
+    user = db.get(User, user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if profile_data.full_name:
+        user.name = profile_data.full_name
+        
+    update_data = profile_data.model_dump(exclude_unset=True, exclude={"full_name"})
+    
+    for key, value in update_data.items():
+        setattr(user, key, value)
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    
+    return user
 
 if __name__ == "__main__":
     import uvicorn

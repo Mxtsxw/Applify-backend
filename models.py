@@ -1,6 +1,22 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+class UserProfileUpdate(BaseModel):
+    """
+    Defines the allowed fields for updating a user profile.
+    """
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    experience: Optional[str] = None
+    education: Optional[str] = None
+    skills: Optional[str] = None
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    portfolio: Optional[str] = None
+
 class AnalysisBreakdown(BaseModel):
     skillsMatch: int = Field(..., description="Percentage match for technical skills (0-100).")
     experienceMatch: int = Field(..., description="Percentage match for required years/type of experience (0-100).")
