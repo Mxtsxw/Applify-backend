@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
-from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest, UserProfileUpdate
+from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest, UserProfileUpdate, ManualCoverLetterRequest
 from llm import run_llm_analysis_chain, generate_cover_letter_chain
 from datetime import datetime
 from fastapi.responses import RedirectResponse
@@ -26,7 +26,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from database import create_db_and_tables, get_session, User, Resume
+from database import create_db_and_tables, get_session, User, Resume, CoverLetter
+from pydantic import BaseModel
 
 # --- Lifecycle: Connect to DB on Start ---
 @asynccontextmanager
@@ -380,6 +381,91 @@ async def delete_resume(
     db.commit()
     
     return {"status": "deleted", "id": resume_id}
+
+# --- COVER LETTER ENDPOINTS ---
+
+@app.get("/api/v1/cover-letters", response_model=List[CoverLetter])
+async def list_cover_letters(
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    """Lists all cover letters for the current user."""
+    user_id = int(token.get("sub"))
+    statement = select(CoverLetter).where(CoverLetter.user_id == user_id).order_by(CoverLetter.created_at.desc())
+    return db.exec(statement).all()
+
+@app.post("/api/v1/cover-letters/manual", response_model=CoverLetter)
+async def create_manual_cover_letter(
+    data: ManualCoverLetterRequest,
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    """Saves a manually written cover letter."""
+    user_id = int(token.get("sub"))
+    
+    cl = CoverLetter(
+        user_id=user_id,
+        title=data.title,
+        content=data.content,
+        method="manual"
+    )
+    db.add(cl)
+    db.commit()
+    db.refresh(cl)
+    return cl
+
+@app.post("/api/v1/cover-letters/upload", response_model=CoverLetter)
+async def upload_cover_letter(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    """Uploads a cover letter file (PDF/Doc)."""
+    user_id = int(token.get("sub"))
+    
+    # Save file
+    timestamp = int(datetime.utcnow().timestamp())
+    safe_filename = f"cl_{user_id}_{timestamp}_{file.filename}"
+    file_path = UPLOAD_DIR / safe_filename
+    
+    with file_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    cl = CoverLetter(
+        user_id=user_id,
+        title=title,
+        filename=safe_filename,
+        file_url=f"/static/resumes/{safe_filename}", 
+        file_type=file.content_type,
+        method="upload"
+    )
+    db.add(cl)
+    db.commit()
+    db.refresh(cl)
+    return cl
+
+@app.delete("/api/v1/cover-letters/{cl_id}")
+async def delete_cover_letter(
+    cl_id: int,
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    user_id = int(token.get("sub"))
+    cl = db.get(CoverLetter, cl_id)
+    
+    if not cl or cl.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Cover letter not found")
+        
+    # Delete file if exists
+    if cl.method == "upload" and cl.filename:
+        file_path = UPLOAD_DIR / cl.filename
+        if file_path.exists():
+            os.remove(file_path)
+            
+    db.delete(cl)
+    db.commit()
+    return {"status": "deleted"}
 
 if __name__ == "__main__":
     import uvicorn

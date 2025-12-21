@@ -35,6 +35,7 @@ class User(SQLModel, table=True):
 
     # Relationship to Resumes
     resumes: List["Resume"] = Relationship(back_populates="user")
+    cover_letters: List["CoverLetter"] = Relationship(back_populates="user")
 
 class Resume(SQLModel, table=True):
     __tablename__ = "resumes"
@@ -52,6 +53,24 @@ class Resume(SQLModel, table=True):
 
     # Relationship back to User
     user: Optional["User"] = Relationship(back_populates="resumes")
+
+class CoverLetter(SQLModel, table=True):
+    __tablename__ = "cover_letters"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    
+    title: str 
+    content: Optional[str] = Field(default=None, sa_column=Column(Text)) # For manual text
+    
+    # File fields (Optional, only for uploads)
+    filename: Optional[str] = None
+    file_url: Optional[str] = None
+    file_type: Optional[str] = None
+    
+    method: str = Field(default="manual") # 'upload', 'manual', 'ai_generated'
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    user: Optional["User"] = Relationship(back_populates="cover_letters")
 
 # --- 2. The Connection ---
 DATABASE_URL = os.getenv("DATABASE_URL")
