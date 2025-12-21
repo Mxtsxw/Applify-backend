@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
-from sqlmodel import Field, SQLModel, create_engine, Session, Column, Text
+from sqlmodel import Field, SQLModel, create_engine, Session, Column, Text, Relationship, select
 from dotenv import load_dotenv
 import os
 
@@ -32,6 +32,26 @@ class User(SQLModel, table=True):
     linkedin: Optional[str] = None
     github: Optional[str] = None
     portfolio: Optional[str] = None
+
+    # Relationship to Resumes
+    resumes: List["Resume"] = Relationship(back_populates="user")
+
+class Resume(SQLModel, table=True):
+    __tablename__ = "resumes"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    
+    title: str
+    filename: str
+    file_url: str
+    file_type: str
+    file_size: int
+    
+    status: str = Field(default="active") # "active" or "inactive"
+    upload_date: datetime = Field(default_factory=datetime.utcnow)
+
+    # Relationship back to User
+    user: Optional["User"] = Relationship(back_populates="resumes")
 
 # --- 2. The Connection ---
 DATABASE_URL = os.getenv("DATABASE_URL")

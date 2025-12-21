@@ -16,12 +16,17 @@ from fastapi.security import OAuth2PasswordBearer
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 from sqlmodel import Session, select
+from typing import List
+
+import shutil
+from fastapi import UploadFile, File, Form
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-# Import our new DB tools
-from database import create_db_and_tables, get_session, User
+from database import create_db_and_tables, get_session, User, Resume
 
 # --- Lifecycle: Connect to DB on Start ---
 @asynccontextmanager
@@ -30,11 +35,15 @@ async def lifespan(app: FastAPI):
     logging.info("Database tables verified.")
     yield
 
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
 # Initialize FastAPI App
 app = FastAPI(
     title="Applify",
     description="AI-powered job/profile alignment assessment."
 )
+app.mount("/static/resumes", StaticFiles(directory="uploads"), name="resumes")
 
 # Load secret from env or default for dev
 SECRET_KEY = os.getenv("SECRET_KEY", "unsafe-dev-secret")
@@ -291,6 +300,86 @@ async def update_my_profile(
     db.refresh(user)
     
     return user
+
+# --- RESUME ENDPOINTS ---
+
+@app.post("/api/v1/resumes/upload", response_model=Resume)
+async def upload_resume(
+    file: UploadFile = File(...),
+    title: str = Form(...),
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    """Uploads a resume file and links it to the user."""
+    user_id = int(token.get("sub"))
+    
+    # 1. Generate unique filename to prevent collisions
+    # e.g. "user_123_timestamp_filename.pdf"
+    timestamp = int(datetime.utcnow().timestamp())
+    safe_filename = f"user_{user_id}_{timestamp}_{file.filename}"
+    file_path = UPLOAD_DIR / safe_filename
+    
+    # 2. Save file to disk
+    with file_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # 3. Create DB Entry
+    file_url = f"/static/resumes/{safe_filename}"
+    file_size = os.path.getsize(file_path)
+    
+    resume = Resume(
+        user_id=user_id,
+        title=title,
+        filename=safe_filename,
+        file_url=file_url,
+        file_type=file.content_type or "application/pdf",
+        file_size=file_size,
+        status="active"
+    )
+    
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    
+    return resume
+
+@app.get("/api/v1/resumes", response_model=List[Resume])
+async def list_resumes(
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+
+    logging.info("Listing resumes for current user.")
+    """Lists all resumes for the current user."""
+    user_id = int(token.get("sub"))
+    statement = select(Resume).where(Resume.user_id == user_id).order_by(Resume.upload_date.desc())
+    resumes = db.exec(statement).all()
+    logging.info(f"User ID {user_id} has {len(resumes)} resumes.")
+    return resumes
+
+@app.delete("/api/v1/resumes/{resume_id}")
+async def delete_resume(
+    resume_id: int,
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    """Deletes a resume from DB and Disk."""
+    user_id = int(token.get("sub"))
+    resume = db.get(Resume, resume_id)
+    
+    if not resume or resume.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+        
+    # 1. Remove from Disk
+    file_path = UPLOAD_DIR / resume.filename
+    if file_path.exists():
+        os.remove(file_path)
+        
+    # 2. Remove from DB
+    db.delete(resume)
+    db.commit()
+    
+    return {"status": "deleted", "id": resume_id}
 
 if __name__ == "__main__":
     import uvicorn
