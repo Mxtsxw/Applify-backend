@@ -414,6 +414,26 @@ async def create_manual_cover_letter(
     db.refresh(cl)
     return cl
 
+@app.post("/api/v1/cover-letters/ai-generated", response_model=CoverLetter)
+async def create_ai_generated_cover_letter(
+    data: ManualCoverLetterRequest,
+    token: dict = Depends(validate_token),
+    db: Session = Depends(get_session)
+):
+    """Saves a manually written cover letter."""
+    user_id = int(token.get("sub"))
+    
+    cl = CoverLetter(
+        user_id=user_id,
+        title=data.title,
+        content=data.content,
+        method="ai-generated"
+    )
+    db.add(cl)
+    db.commit()
+    db.refresh(cl)
+    return cl
+
 @app.post("/api/v1/cover-letters/upload", response_model=CoverLetter)
 async def upload_cover_letter(
     file: UploadFile = File(...),
