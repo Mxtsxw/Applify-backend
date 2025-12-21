@@ -62,7 +62,8 @@ def generate_cover_letter_chain(
     job_description: str, 
     profile_content: str, 
     analysis_data: JobPostingAnalysis, 
-    user_template: str | None
+    user_template: str | None,
+    language: str = "English"
 ) -> str:
     """
     Generates a personalized cover letter by contextually integrating job analysis into a template.
@@ -102,7 +103,8 @@ def generate_cover_letter_chain(
     1. **Personalize:** Integrate specific matched skills and scores from the AI Analysis into the BASE TEMPLATE text.
     2. **Address Gaps:** If there are 'missingSkills', briefly and positively mention the intent to develop those areas.
     3. **Tone:** Maintain the professional tone of the BASE TEMPLATE.
-    4. **Output:** Return ONLY the final, polished cover letter text.
+    4. **Language:** Write the final cover letter strictly in {language}.
+    5. **Output:** Return ONLY the final, polished cover letter text.
     """
 
     prompt_template = ChatPromptTemplate.from_messages([

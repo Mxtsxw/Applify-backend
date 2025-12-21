@@ -33,3 +33,4 @@ class CoverLetterRequest(BaseModel):
     profile_content: str = Field(..., description="Candidate's profile/resume text.")
     analysis_data: JobPostingAnalysis = Field(..., description="Structured analysis results used for personalization.")
     template_content: Optional[str] = Field(None, description="User's custom template from the frontend (can be null).")
+    language: str = Field(default="English", description="Target language (e.g., 'French', 'English').")

@@ -227,7 +227,8 @@ async def generate_cover_letter(request_data: CoverLetterRequest, token: str = D
             request_data.job_description,
             request_data.profile_content,
             request_data.analysis_data,
-            request_data.template_content
+            request_data.template_content,
+            request_data.language
         )
         
         return final_letter_text
