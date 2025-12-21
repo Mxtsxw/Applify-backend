@@ -110,6 +110,9 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
     Handles the callback from Google.
     Logic: Find User by Email ? Log them in : Create new User.
     """
+    # Redirect to Frontend
+    FRONTEND_URL = os.getenv("FRONTEND_AUTH_CALLBACK_URL") 
+    
     try:
         token = await oauth.google.authorize_access_token(request)
         user_info = token.get('userinfo')
@@ -158,9 +161,6 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
             payload, 
             SECRET_KEY
         ).decode('utf-8')
-
-        # Redirect to Frontend
-        FRONTEND_URL = os.getenv("FRONTEND_AUTH_CALLBACK_URL") 
         
         # We pass the token in the URL query parameter
         return RedirectResponse(url=f"{FRONTEND_URL}?token={frontend_token}")

@@ -20,7 +20,7 @@ class User(SQLModel, table=True):
 # --- 2. The Connection ---
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-engine = create_engine("postgresql://postgres:mysecretpassword@localhost:5433/postgres")
+engine = create_engine(DATABASE_URL, echo=False)
 
 def create_db_and_tables():
     """Creates the 'user' table in Postgres if it doesn't exist."""
