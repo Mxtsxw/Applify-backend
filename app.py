@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
@@ -8,9 +9,10 @@ from models import AnalysisRequest, JobPostingAnalysis, CoverLetterRequest
 from llm import run_llm_analysis_chain, generate_cover_letter_chain
 from datetime import datetime
 from fastapi.responses import RedirectResponse
-from authlib.jose import jwt, JsonWebKey
+from authlib.jose import jwt, JsonWebKey, JoseError
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Security, status
+from fastapi.security import OAuth2PasswordBearer
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 from sqlmodel import Session, select
@@ -50,6 +52,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Auth Utilities ---
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/google")
+
+def validate_token(token: str = Depends(oauth2_scheme)):
+    """
+    Decodes and validates the JWT token from the Authorization header.
+    Returns the user payload (ID, email, etc.) if valid.
+    """
+    logging.info("Validating token for current user.")
+    try:
+        # 1. Decode the token using the SAME secret key used to sign it
+        payload = jwt.decode(token, SECRET_KEY)
+        
+        # 2. Validate claims (checks if token is expired 'exp')
+        payload.validate()
+        
+        logging.info(f"Token valid for user ID: {payload.get('sub')}, email: {payload.get('email')}")
+        return payload
+
+    except JoseError as e:
+        logging.error(f"Token validation error: {e}")
+        # If signature is wrong or token is expired
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 
 # Configure Google OAuth
 oauth = OAuth()
@@ -93,20 +124,17 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
         user = db.exec(statement).first()
         
         if not user:
-            # --- CREATE NEW USER ---
             logging.info(f"New user detected: {email}")
             user = User(
                 email=email,
                 name=user_info.get("name"),
                 picture_url=user_info.get("picture"),
-                provider="google", # Mark as Google for now
+                provider="google",
             )
             db.add(user)
         else:
-            # --- UPDATE EXISTING USER ---
             logging.info(f"Welcome back: {email}")
             user.last_login = datetime.utcnow()
-            # Optional: Update picture or name if they changed on Google
             user.name = user_info.get("name") 
             user.picture_url = user_info.get("picture")
             db.add(user)
@@ -121,7 +149,7 @@ async def auth_callback_google(request: Request, db: Session = Depends(get_sessi
             "email": user.email,
             "name": user.name,
             "picture": user.picture_url,
-            "exp": 3600
+            "exp": int(time.time()) + 3600  # 1 hour expiration
         }
         
         # authlib.jose.jwt.encode returns bytes, so we decode to string
@@ -154,7 +182,7 @@ async def get_current_user(request: Request, db: Session = Depends(get_session))
     return user
 
 @app.post("/api/v1/analyze-match/", response_model=JobPostingAnalysis)
-async def analyze_job_posting(request: AnalysisRequest):
+async def analyze_job_posting(request: AnalysisRequest, token: str = Depends(validate_token)):
     """
     Takes a job posting URL and returns a structured analysis object
     by running a LangChain pipeline.
@@ -162,6 +190,8 @@ async def analyze_job_posting(request: AnalysisRequest):
     Note: The use of run_in_threadpool is VITAL here. It runs the
     blocking, synchronous LLM code in a separate thread, keeping
     FastAPI's main event loop free for high concurrency.
+    
+    Requires: Bearer token authentication
     """
     job_description = request.job_posting_content
     profile_description = request.resume_text or ""
@@ -176,10 +206,12 @@ async def analyze_job_posting(request: AnalysisRequest):
              response_class=PlainTextResponse,
              status_code=200,
              summary="Generate personalized cover letter using LLM.")
-async def generate_cover_letter(request_data: CoverLetterRequest):
+async def generate_cover_letter(request_data: CoverLetterRequest, token: str = Depends(validate_token)):
     """
     Receives all necessary inputs (Job, Profile, Analysis, Template) and calls the 
     LLM chain to generate a final, personalized cover letter text.
+    
+    Requires: Bearer token authentication
     """
     logging.info("Received request for cover letter generation via app.post.")
     
