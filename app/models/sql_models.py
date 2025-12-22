@@ -1,12 +1,7 @@
 from typing import Optional, List
 from datetime import datetime
-from sqlmodel import Field, SQLModel, create_engine, Session, Column, Text, Relationship, select
-from dotenv import load_dotenv
-import os
+from sqlmodel import Field, SQLModel, Column, Text, Relationship
 
-load_dotenv()
-
-# --- 1. The User Model ---
 class User(SQLModel, table=True):
     __tablename__ = "users"
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -71,17 +66,3 @@ class CoverLetter(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     user: Optional["User"] = Relationship(back_populates="cover_letters")
-
-# --- 2. The Connection ---
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-engine = create_engine(DATABASE_URL, echo=False)
-
-def create_db_and_tables():
-    """Creates the 'user' table in Postgres if it doesn't exist."""
-    SQLModel.metadata.create_all(engine)
-
-def get_session():
-    """Dependency for FastAPI endpoints."""
-    with Session(engine) as session:
-        yield session
