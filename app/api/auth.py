@@ -7,6 +7,7 @@ from app.core.database import get_session
 from app.core.security import create_access_token
 from app.models.sql_models import User
 from app.config import settings
+from app.core.logging import traffic_logger
 
 router = APIRouter()
 oauth = OAuth()
@@ -40,6 +41,8 @@ async def auth_callback(request: Request, db: Session = Depends(get_session)):
         
     db.commit()
     db.refresh(user)
+
+    traffic_logger.info(f"USER LOGIN SUCCESS: {user.email} (ID: {user.id})")
 
     frontend_token = create_access_token({"sub": str(user.id), "email": user.email})
     return RedirectResponse(url=f"{settings.FRONTEND_AUTH_CALLBACK_URL}?token={frontend_token}")
