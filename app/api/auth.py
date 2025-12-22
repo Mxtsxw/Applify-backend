@@ -37,6 +37,10 @@ async def auth_callback(request: Request, db: Session = Depends(get_session)):
         db.add(user)
     else:
         user.last_login = datetime.utcnow()
+        if user_info.get("name"):
+            user.name = user_info.get("name")
+        if user_info.get("picture"):
+            user.picture_url = user_info.get("picture")
         db.add(user)
         
     db.commit()
@@ -44,5 +48,10 @@ async def auth_callback(request: Request, db: Session = Depends(get_session)):
 
     traffic_logger.info(f"USER LOGIN SUCCESS: {user.email} (ID: {user.id})")
 
-    frontend_token = create_access_token({"sub": str(user.id), "email": user.email})
+    frontend_token = create_access_token({
+        "sub": str(user.id), 
+        "email": user.email,
+        "name": user.name,
+        "picture": user.picture_url
+    })
     return RedirectResponse(url=f"{settings.FRONTEND_AUTH_CALLBACK_URL}?token={frontend_token}")
